@@ -7,6 +7,7 @@ import tempfile
 import base64
 import os
 import requests
+import ta
 
 # Configure Streamlit page
 st.set_page_config(layout="wide", page_title="AI-Powered Technical Stock Analysis")
@@ -18,24 +19,35 @@ ticker = st.sidebar.text_input("Stock Symbol", value="AAPL").upper()
 start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime("2023-01-01"))
 end_date = st.sidebar.date_input("End Date", value=pd.to_datetime("2024-12-14"))
 
-def calculate_technical_indicators(data):
-    # Calculate SMA
-    data['SMA_20'] = data['Close'].rolling(window=20).mean()
-    data['SMA_50'] = data['Close'].rolling(window=50).mean()
+def calculate_technical_indicators(df):
+    # Moving Averages
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()
+    df['SMA_50'] = df['Close'].rolling(window=50).mean()
+    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     
-    # Calculate EMA
-    data['EMA_20'] = data['Close'].ewm(span=20, adjust=False).mean()
+    # Bollinger Bands
+    rolling_mean = df['Close'].rolling(window=20).mean()
+    rolling_std = df['Close'].rolling(window=20).std()
+    df['BB_upper'] = rolling_mean + (rolling_std * 2)
+    df['BB_lower'] = rolling_mean - (rolling_std * 2)
     
-    # Calculate Bollinger Bands
-    rolling_mean = data['Close'].rolling(window=20).mean()
-    rolling_std = data['Close'].rolling(window=20).std()
-    data['BB_upper'] = rolling_mean + (rolling_std * 2)
-    data['BB_lower'] = rolling_mean - (rolling_std * 2)
+    # VWAP
+    df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
     
-    # Calculate VWAP
-    data['VWAP'] = (data['Close'] * data['Volume']).cumsum() / data['Volume'].cumsum()
+    # RSI
+    df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
     
-    return data
+    # MACD
+    macd = ta.trend.MACD(df['Close'])
+    df['MACD'] = macd.macd()
+    df['MACD_signal'] = macd.macd_signal()
+    
+    # Stochastic Oscillator
+    stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
+    df['Stoch_k'] = stoch.stoch()
+    df['Stoch_d'] = stoch.stoch_signal()
+    
+    return df
 
 # Fetch stock data
 if st.sidebar.button("Fetch Data"):
@@ -49,6 +61,10 @@ if st.sidebar.button("Fetch Data"):
             data = calculate_technical_indicators(data)
             st.session_state["stock_data"] = data
             st.success(f"Successfully loaded data for {ticker}")
+            
+            # Debug info
+            st.sidebar.write("Data shape:", data.shape)
+            
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
 
@@ -76,7 +92,7 @@ if "stock_data" in st.session_state:
     st.sidebar.subheader("Technical Indicators")
     indicators = st.sidebar.multiselect(
         "Select indicators",
-        ["SMA 20", "SMA 50", "EMA 20", "Bollinger Bands", "VWAP"],
+        ["SMA 20", "SMA 50", "EMA 20", "Bollinger Bands", "VWAP", "RSI", "MACD", "Stochastic"],
         default=["SMA 20"]
     )
     
@@ -92,8 +108,34 @@ if "stock_data" in st.session_state:
         fig.add_trace(go.Scatter(x=data.index, y=data['BB_lower'], name='BB Lower', line=dict(color='gray', dash='dash')))
     if "VWAP" in indicators:
         fig.add_trace(go.Scatter(x=data.index, y=data['VWAP'], name='VWAP', line=dict(color='green')))
-    
-    # Update layout
+        
+    # Create subplot for additional indicators
+    if any(ind in indicators for ind in ["RSI", "MACD", "Stochastic"]):
+        fig2 = go.Figure()
+        
+        if "RSI" in indicators:
+            fig2.add_trace(go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='blue')))
+            fig2.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought (70)")
+            fig2.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold (30)")
+            
+        if "MACD" in indicators:
+            fig2.add_trace(go.Scatter(x=data.index, y=data['MACD'], name='MACD', line=dict(color='blue')))
+            fig2.add_trace(go.Scatter(x=data.index, y=data['MACD_signal'], name='Signal', line=dict(color='orange')))
+            
+        if "Stochastic" in indicators:
+            fig2.add_trace(go.Scatter(x=data.index, y=data['Stoch_k'], name='Stoch %K', line=dict(color='blue')))
+            fig2.add_trace(go.Scatter(x=data.index, y=data['Stoch_d'], name='Stoch %D', line=dict(color='orange')))
+            fig2.add_hline(y=80, line_dash="dash", line_color="red")
+            fig2.add_hline(y=20, line_dash="dash", line_color="green")
+            
+        fig2.update_layout(
+            title="Technical Indicators",
+            height=300,
+            showlegend=True,
+            template='plotly_dark'
+        )
+        
+    # Update main chart layout
     fig.update_layout(
         title=f'{ticker} Stock Price',
         yaxis_title='Price ($)',
@@ -110,12 +152,56 @@ if "stock_data" in st.session_state:
         margin=dict(l=50, r=50, t=50, b=50)
     )
     
-    # Show the plot
+    # Show the plots
     st.plotly_chart(fig, use_container_width=True)
+    if any(ind in indicators for ind in ["RSI", "MACD", "Stochastic"]):
+        st.plotly_chart(fig2, use_container_width=True)
     
     # Show recent data
     st.subheader("Recent Price Data")
     st.dataframe(data.tail(10), use_container_width=True)
+    
+    # Technical Analysis Summary
+    st.subheader("Technical Analysis Summary")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Moving Averages**")
+        current_price = data['Close'].iloc[-1]
+        sma20 = data['SMA_20'].iloc[-1]
+        sma50 = data['SMA_50'].iloc[-1]
+        
+        st.write(f"Current Price: ${current_price:.2f}")
+        st.write(f"SMA 20: ${sma20:.2f}")
+        st.write(f"SMA 50: ${sma50:.2f}")
+        
+        if current_price > sma20 and current_price > sma50:
+            st.write(" Price is above both moving averages - Bullish")
+        elif current_price < sma20 and current_price < sma50:
+            st.write(" Price is below both moving averages - Bearish")
+        else:
+            st.write(" Price is between moving averages - Neutral")
+            
+    with col2:
+        st.write("**Momentum Indicators**")
+        rsi = data['RSI'].iloc[-1]
+        stoch_k = data['Stoch_k'].iloc[-1]
+        
+        st.write(f"RSI (14): {rsi:.2f}")
+        if rsi > 70:
+            st.write(" RSI indicates overbought conditions")
+        elif rsi < 30:
+            st.write(" RSI indicates oversold conditions")
+        else:
+            st.write(" RSI indicates neutral conditions")
+            
+        st.write(f"Stochastic %K: {stoch_k:.2f}")
+        if stoch_k > 80:
+            st.write(" Stochastic indicates overbought conditions")
+        elif stoch_k < 20:
+            st.write(" Stochastic indicates oversold conditions")
+        else:
+            st.write(" Stochastic indicates neutral conditions")
     
     # AI Analysis section
     st.subheader("AI-Powered Analysis")
@@ -139,6 +225,12 @@ if "stock_data" in st.session_state:
                 3. Trading volume analysis
                 4. Pattern recognition (if any)
                 5. A clear buy/hold/sell recommendation
+                
+                Current Technical Indicators:
+                - RSI: {rsi:.2f}
+                - SMA20: ${sma20:.2f}
+                - SMA50: ${sma50:.2f}
+                - Stochastic %K: {stoch_k:.2f}
                 
                 Be specific and concise in your analysis."""
                 
