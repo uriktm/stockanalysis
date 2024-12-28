@@ -1,0 +1,10 @@
+[server]
+port = 8501
+address = "localhost"
+
+[browser]
+serverAddress = "localhost"
+gatherUsageStats = false
+
+[theme]
+base = "dark"
