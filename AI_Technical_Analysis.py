@@ -7,11 +7,33 @@ import tempfile
 import base64
 import os
 import requests
-import ta
+from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Configure OpenAI
+api_key = "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"
+if api_key:
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.openai.com/v1"
+    )
 
 # Configure Streamlit page
 st.set_page_config(layout="wide", page_title="AI-Powered Technical Stock Analysis")
 st.title("AI-Powered Technical Stock Analysis Dashboard")
+
+# Add API Key input in sidebar if not in environment
+if not api_key:
+    api_key = st.sidebar.text_input("OpenAI API Key", type="password", key="openai_api_key", 
+                         help="Enter your OpenAI API key to enable AI analysis")
+    if api_key:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.openai.com/v1"
+        )
 
 # Sidebar inputs
 st.sidebar.header("Settings")
@@ -35,17 +57,23 @@ def calculate_technical_indicators(df):
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
     
     # RSI
-    df['RSI'] = ta.momentum.rsi(df['Close'], window=14)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
     
     # MACD
-    macd = ta.trend.MACD(df['Close'])
-    df['MACD'] = macd.macd()
-    df['MACD_signal'] = macd.macd_signal()
+    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = exp1 - exp2
+    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
     
     # Stochastic Oscillator
-    stoch = ta.momentum.StochasticOscillator(df['High'], df['Low'], df['Close'])
-    df['Stoch_k'] = stoch.stoch()
-    df['Stoch_d'] = stoch.stoch_signal()
+    low_min = df['Low'].rolling(window=14).min()
+    high_max = df['High'].rolling(window=14).max()
+    df['Stoch_k'] = 100 * ((df['Close'] - low_min) / (high_max - low_min))
+    df['Stoch_d'] = df['Stoch_k'].rolling(window=3).mean()
     
     return df
 
@@ -61,9 +89,6 @@ if st.sidebar.button("Fetch Data"):
             data = calculate_technical_indicators(data)
             st.session_state["stock_data"] = data
             st.success(f"Successfully loaded data for {ticker}")
-            
-            # Debug info
-            st.sidebar.write("Data shape:", data.shape)
             
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
@@ -167,9 +192,9 @@ if "stock_data" in st.session_state:
     
     with col1:
         st.write("**Moving Averages**")
-        current_price = data['Close'].iloc[-1]
-        sma20 = data['SMA_20'].iloc[-1]
-        sma50 = data['SMA_50'].iloc[-1]
+        current_price = float(data['Close'].iloc[-1])
+        sma20 = float(data['SMA_20'].iloc[-1])
+        sma50 = float(data['SMA_50'].iloc[-1])
         
         st.write(f"Current Price: ${current_price:.2f}")
         st.write(f"SMA 20: ${sma20:.2f}")
@@ -184,8 +209,8 @@ if "stock_data" in st.session_state:
             
     with col2:
         st.write("**Momentum Indicators**")
-        rsi = data['RSI'].iloc[-1]
-        stoch_k = data['Stoch_k'].iloc[-1]
+        rsi = float(data['RSI'].iloc[-1])
+        stoch_k = float(data['Stoch_k'].iloc[-1])
         
         st.write(f"RSI (14): {rsi:.2f}")
         if rsi > 70:
@@ -207,19 +232,25 @@ if "stock_data" in st.session_state:
     st.subheader("AI-Powered Analysis")
     if st.button("Run AI Analysis"):
         try:
-            # Save plot to temporary file
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tmpfile:
-                fig.write_image(tmpfile.name)
+            if not api_key:
+                st.error("Please enter your OpenAI API key in the sidebar to use AI analysis")
+            else:
+                # Prepare chart data for analysis
+                latest_data = data.tail(30)  # Last 30 days for recent analysis
                 
-                # Encode image to base64
-                with open(tmpfile.name, "rb") as image_file:
-                    encoded_string = base64.b64encode(image_file.read()).decode()
+                # Convert values to float for formatting
+                current_price = float(data['Close'].iloc[-1])
+                rsi_value = float(data['RSI'].iloc[-1])
+                sma20_value = float(data['SMA_20'].iloc[-1])
+                sma50_value = float(data['SMA_50'].iloc[-1])
+                stoch_k_value = float(data['Stoch_k'].iloc[-1])
+                macd_value = float(data['MACD'].iloc[-1])
+                high_30d = float(latest_data['High'].max())
+                low_30d = float(latest_data['Low'].min())
+                avg_volume = int(latest_data['Volume'].mean())
                 
-                # Clean up temporary file
-                os.unlink(tmpfile.name)
-                
-                # Prepare prompt for AI
-                prompt = f"""Analyze this stock chart for {ticker} and provide:
+                # Prepare prompt for GPT
+                prompt = f"""Analyze this stock data for {ticker} and provide:
                 1. Technical analysis of the price trends
                 2. Key support and resistance levels
                 3. Trading volume analysis
@@ -227,26 +258,34 @@ if "stock_data" in st.session_state:
                 5. A clear buy/hold/sell recommendation
                 
                 Current Technical Indicators:
-                - RSI: {rsi:.2f}
-                - SMA20: ${sma20:.2f}
-                - SMA50: ${sma50:.2f}
-                - Stochastic %K: {stoch_k:.2f}
+                - Price: ${current_price:.2f}
+                - RSI (14): {rsi_value:.2f}
+                - SMA20: ${sma20_value:.2f}
+                - SMA50: ${sma50_value:.2f}
+                - Stochastic %K: {stoch_k_value:.2f}
+                - MACD: {macd_value:.2f}
                 
-                Be specific and concise in your analysis."""
+                Recent price action:
+                - 30-day high: ${high_30d:.2f}
+                - 30-day low: ${low_30d:.2f}
+                - Average volume: {avg_volume:,}
                 
-                # Send to Ollama API
-                response = requests.post('http://localhost:11434/api/generate',
-                                      json={
-                                          "model": "llama2",
-                                          "prompt": prompt,
-                                          "stream": False
-                                      })
+                Please provide a concise, professional analysis. Answer in Hebrew!."""
                 
-                if response.status_code == 200:
-                    analysis = response.json()['response']
-                    st.write(analysis)
-                else:
-                    st.error("Error connecting to Ollama API. Make sure Ollama is running.")
-                    
+                # Get AI analysis
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are a professional stock market analyst. Provide clear, concise, and actionable analysis based on technical indicators and market data."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=500
+                )
+                
+                # Display analysis
+                analysis = response.choices[0].message.content
+                st.write(analysis)
+                
         except Exception as e:
             st.error(f"Error during AI analysis: {str(e)}")
