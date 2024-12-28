@@ -1,6 +1,9 @@
 [server]
 port = 8501
 address = "localhost"
+maxUploadSize = 200
+enableXsrfProtection = false
+enableCORS = false
 
 [browser]
 serverAddress = "localhost"
@@ -8,3 +11,21 @@ gatherUsageStats = false
 
 [theme]
 base = "dark"
+primaryColor = "#FF4B4B"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#FAFAFA"
+font = "Assistant"
+
+[client]
+toolbarMode = "minimal"
+showSidebarOnLoad = true
+
+[runner]
+fastReruns = true
+
+[logger]
+level = "info"
+
+[secrets]
+OPENAI_API_KEY = "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"
