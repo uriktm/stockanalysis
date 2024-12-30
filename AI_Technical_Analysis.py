@@ -15,12 +15,10 @@ from config import *  # Import all configuration settings
 load_dotenv()
 
 # Configure OpenAI
-api_key = os.getenv('OPENAI_API_KEY')
-if api_key:
-    client = OpenAI(
-        api_key=api_key,
-        base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
-    )
+client = OpenAI(
+    api_key=st.secrets["openai_api_key"],
+    base_url=st.secrets.get("openai_base_url", "https://api.openai.com/v1")
+)
 
 # Configure Streamlit page
 st.set_page_config(
