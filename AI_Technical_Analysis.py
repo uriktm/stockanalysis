@@ -7,7 +7,7 @@ import tempfile
 import base64
 import os
 import requests
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 from config import *  # Import all configuration settings
 
@@ -17,7 +17,10 @@ load_dotenv()
 # Configure OpenAI
 api_key = os.getenv('OPENAI_API_KEY')
 if api_key:
-    openai.api_key = api_key
+    client = OpenAI(
+        api_key=api_key,
+        base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
+    )
 
 # Configure Streamlit page
 st.set_page_config(
@@ -73,7 +76,10 @@ if not api_key:
     api_key = st.sidebar.text_input("OpenAI API מפתח", type="password", key="openai_api_key", 
                          help="הזן את מפתח ה-API של OpenAI כדי לאפשר ניתוח בינה מלאכותית")
     if api_key:
-        openai.api_key = api_key
+        client = OpenAI(
+            api_key=api_key,
+            base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
+        )
 
 # Sidebar inputs
 st.sidebar.header("הגדרות")
@@ -305,15 +311,18 @@ if "stock_data" in st.session_state:
                 )
                 
                 # Get AI analysis
-                response = openai.Completion.create(
+                response = client.chat.completions.create(
                     model=OPENAI_CONFIG["MODEL"],
-                    prompt=prompt,
+                    messages=[
+                        {"role": "system", "content": OPENAI_CONFIG["SYSTEM_PROMPT"]},
+                        {"role": "user", "content": prompt}
+                    ],
                     temperature=OPENAI_CONFIG["TEMPERATURE"],
                     max_tokens=OPENAI_CONFIG["MAX_TOKENS"]
                 )
                 
                 # Display analysis
-                analysis = response.choices[0].text
+                analysis = response.choices[0].message.content
                 st.markdown(f'<div class="ai-analysis">{analysis}</div>', unsafe_allow_html=True)
                 
         except Exception as e:
