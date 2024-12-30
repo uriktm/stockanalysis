@@ -9,20 +9,28 @@ import os
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
+from config import *  # Import all configuration settings
 
 # Load environment variables
 load_dotenv()
 
 # Configure OpenAI
-api_key = "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"
+api_key = os.getenv('OPENAI_API_KEY')
 if api_key:
     client = OpenAI(
         api_key=api_key,
-        base_url="https://api.openai.com/v1"
+        base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
     )
 
 # Configure Streamlit page
-st.set_page_config(layout="wide", page_title="ניתוח טכני של מניות מבוסס בינה מלאכותית", initial_sidebar_state="expanded")
+st.set_page_config(
+    layout="wide",
+    page_title=UI_CONFIG["PAGE_TITLE"],
+    initial_sidebar_state=UI_CONFIG["INITIAL_SIDEBAR_STATE"]
+)
+
+# Add custom CSS for RTL support and better font readability
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # Add custom CSS for RTL support and better font readability
 st.markdown("""
@@ -61,7 +69,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("לוח בקרה לניתוח טכני של מניות מבוסס בינה מלאכותית")
+st.title(UI_CONFIG["PAGE_TITLE"])
 
 # Add API Key input in sidebar if not in environment
 if not api_key:
@@ -70,48 +78,49 @@ if not api_key:
     if api_key:
         client = OpenAI(
             api_key=api_key,
-            base_url="https://api.openai.com/v1"
+            base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
         )
 
 # Sidebar inputs
 st.sidebar.header("הגדרות")
-ticker = st.sidebar.text_input("סמל המניה", value="AAPL").upper()
-start_date = st.sidebar.date_input("תאריך התחלה", value=pd.to_datetime("2023-01-01"))
-end_date = st.sidebar.date_input("תאריך סיום", value=pd.to_datetime("2024-12-14"))
+ticker = st.sidebar.text_input("סמל המניה", value=DEFAULT_TICKER).upper()
+start_date = st.sidebar.date_input("תאריך התחלה", value=pd.to_datetime(DEFAULT_START_DATE))
+end_date = st.sidebar.date_input("תאריך סיום", value=pd.to_datetime(DEFAULT_END_DATE))
 
 def calculate_technical_indicators(df):
     # Moving Averages
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+    for window in TECHNICAL_PARAMS["SMA_WINDOWS"]:
+        df[f'SMA_{window}'] = df['Close'].rolling(window=window).mean()
+    for window in TECHNICAL_PARAMS["EMA_WINDOWS"]:
+        df[f'EMA_{window}'] = df['Close'].ewm(span=window, adjust=False).mean()
     
     # Bollinger Bands
-    rolling_mean = df['Close'].rolling(window=20).mean()
-    rolling_std = df['Close'].rolling(window=20).std()
-    df['BB_upper'] = rolling_mean + (rolling_std * 2)
-    df['BB_lower'] = rolling_mean - (rolling_std * 2)
+    rolling_mean = df['Close'].rolling(window=TECHNICAL_PARAMS["BOLLINGER_PARAMS"]["WINDOW"]).mean()
+    rolling_std = df['Close'].rolling(window=TECHNICAL_PARAMS["BOLLINGER_PARAMS"]["WINDOW"]).std()
+    df['BB_upper'] = rolling_mean + (rolling_std * TECHNICAL_PARAMS["BOLLINGER_PARAMS"]["STD_DEV"])
+    df['BB_lower'] = rolling_mean - (rolling_std * TECHNICAL_PARAMS["BOLLINGER_PARAMS"]["STD_DEV"])
     
     # VWAP
     df['VWAP'] = (df['Close'] * df['Volume']).cumsum() / df['Volume'].cumsum()
     
     # RSI
     delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(window=TECHNICAL_PARAMS["RSI_PERIOD"]).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=TECHNICAL_PARAMS["RSI_PERIOD"]).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
     
     # MACD
-    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    exp1 = df['Close'].ewm(span=TECHNICAL_PARAMS["MACD_PARAMS"]["FAST"], adjust=False).mean()
+    exp2 = df['Close'].ewm(span=TECHNICAL_PARAMS["MACD_PARAMS"]["SLOW"], adjust=False).mean()
     df['MACD'] = exp1 - exp2
-    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_signal'] = df['MACD'].ewm(span=TECHNICAL_PARAMS["MACD_PARAMS"]["SIGNAL"], adjust=False).mean()
     
     # Stochastic Oscillator
-    low_min = df['Low'].rolling(window=14).min()
-    high_max = df['High'].rolling(window=14).max()
+    low_min = df['Low'].rolling(window=TECHNICAL_PARAMS["STOCH_PARAMS"]["PERIOD"]).min()
+    high_max = df['High'].rolling(window=TECHNICAL_PARAMS["STOCH_PARAMS"]["PERIOD"]).max()
     df['Stoch_k'] = 100 * ((df['Close'] - low_min) / (high_max - low_min))
-    df['Stoch_d'] = df['Stoch_k'].rolling(window=3).mean()
+    df['Stoch_d'] = df['Stoch_k'].rolling(window=TECHNICAL_PARAMS["STOCH_PARAMS"]["SMOOTH_K"]).mean()
     
     return df
 
@@ -212,16 +221,7 @@ if "stock_data" in st.session_state:
         title=f'מחיר המניה {ticker}',
         yaxis_title='מחיר ($)',
         xaxis_title='תאריך',
-        template='plotly_dark',
-        height=600,
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="right",
-            x=0.99
-        ),
-        margin=dict(l=50, r=50, t=50, b=50)
+        **CHART_STYLE
     )
     
     # Show the plots
@@ -260,17 +260,17 @@ if "stock_data" in st.session_state:
         stoch_k = float(data['Stoch_k'].iloc[-1])
         
         st.write(f"RSI (14): {rsi:.2f}")
-        if rsi > 70:
+        if rsi > UI_CONFIG["THRESHOLDS"]["RSI"]["OVERBOUGHT"]:
             st.write(" RSI מצביע על מצב קניה")
-        elif rsi < 30:
+        elif rsi < UI_CONFIG["THRESHOLDS"]["RSI"]["OVERSOLD"]:
             st.write(" RSI מצביע על מצב מכירה")
         else:
             st.write(" RSI מצביע על מצב נייטרלי")
             
         st.write(f"Stochastic %K: {stoch_k:.2f}")
-        if stoch_k > 80:
+        if stoch_k > UI_CONFIG["THRESHOLDS"]["STOCHASTIC"]["OVERBOUGHT"]:
             st.write(" Stochastic מצביע על מצב קניה")
-        elif stoch_k < 20:
+        elif stoch_k < UI_CONFIG["THRESHOLDS"]["STOCHASTIC"]["OVERSOLD"]:
             st.write(" Stochastic מצביע על מצב מכירה")
         else:
             st.write(" Stochastic מצביע על מצב נייטרלי")
@@ -283,7 +283,7 @@ if "stock_data" in st.session_state:
                 st.error("אנא הזן את מפתח ה-API של OpenAI בצד השמאלי כדי להשתמש בניתוח בינה מלאכותית")
             else:
                 # Prepare chart data for analysis
-                latest_data = data.tail(30)  # Last 30 days for recent analysis
+                latest_data = data.tail(ANALYSIS_CONFIG["LOOKBACK_DAYS"])
                 
                 # Convert values to float for formatting
                 current_price = float(data['Close'].iloc[-1])
@@ -297,37 +297,28 @@ if "stock_data" in st.session_state:
                 avg_volume = int(latest_data['Volume'].mean())
                 
                 # Prepare prompt for GPT
-                prompt = f"""נתוח את נתוני המניה של {ticker} וספק:
-                1. ניתוח טכני של מגמות המחיר
-                2. רמות תמיכה והתנגדות מפתחות
-                3. ניתוח נפח המסחר
-                4. זיהוי דפוסים (אם קיימים)
-                5. המלצה ברורה לקניה/החזקה/מכירה
-                
-                אינדיקטורים טכניים נוכחיים:
-                - מחיר: ${current_price:.2f}
-                - RSI (14): {rsi_value:.2f}
-                - SMA20: ${sma20_value:.2f}
-                - SMA50: ${sma50_value:.2f}
-                - Stochastic %K: {stoch_k_value:.2f}
-                - MACD: {macd_value:.2f}
-                
-                פעולת מחיר אחרונה:
-                - שיא 30 יום: ${high_30d:.2f}
-                - מינימום 30 יום: ${low_30d:.2f}
-                - ממוצע נפח: {avg_volume:,}
-                
-                אנא ספק ניתוח מקצועי, קונציזי ומעשי. תשובה בעברית!"""
+                prompt = ANALYSIS_CONFIG["PROMPT_TEMPLATE"].format(
+                    ticker=ticker,
+                    current_price=current_price,
+                    rsi_value=rsi_value,
+                    sma20_value=sma20_value,
+                    sma50_value=sma50_value,
+                    stoch_k_value=stoch_k_value,
+                    macd_value=macd_value,
+                    high_30d=high_30d,
+                    low_30d=low_30d,
+                    avg_volume=avg_volume
+                )
                 
                 # Get AI analysis
                 response = client.chat.completions.create(
-                    model="gpt-4",
+                    model=OPENAI_CONFIG["MODEL"],
                     messages=[
-                        {"role": "system", "content": "You are a professional stock market analyst. Provide clear, concise, and actionable analysis based on technical indicators and market data."},
+                        {"role": "system", "content": OPENAI_CONFIG["SYSTEM_PROMPT"]},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.7,
-                    max_tokens=1500
+                    temperature=OPENAI_CONFIG["TEMPERATURE"],
+                    max_tokens=OPENAI_CONFIG["MAX_TOKENS"]
                 )
                 
                 # Display analysis
