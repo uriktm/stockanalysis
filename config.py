@@ -76,10 +76,10 @@ CHART_STYLE = {
 
 # OpenAI Settings
 OPENAI_CONFIG = {
-    "MODEL": "gpt-4",
+    "MODEL": "text-davinci-003",
     "TEMPERATURE": 0.7,
-    "MAX_TOKENS": 1500,
-    "SYSTEM_PROMPT": "You are a professional stock market analyst. Provide clear, concise, and actionable analysis based on technical indicators and market data."
+    "MAX_TOKENS": 2000,
+    "SYSTEM_PROMPT": """You are a professional stock market analyst. Provide clear, concise, and actionable analysis based on technical indicators and market data."""
 }
 
 # Analysis Settings
