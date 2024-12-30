@@ -71,16 +71,6 @@ st.markdown("""
 
 st.title(UI_CONFIG["PAGE_TITLE"])
 
-# Add API Key input in sidebar if not in environment
-if not api_key:
-    api_key = st.sidebar.text_input("OpenAI API מפתח", type="password", key="openai_api_key", 
-                         help="הזן את מפתח ה-API של OpenAI כדי לאפשר ניתוח בינה מלאכותית")
-    if api_key:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=os.getenv('OPENAI_BASE_URL', "https://api.openai.com/v1")
-        )
-
 # Sidebar inputs
 st.sidebar.header("הגדרות")
 ticker = st.sidebar.text_input("סמל המניה", value=DEFAULT_TICKER).upper()
@@ -279,51 +269,48 @@ if "stock_data" in st.session_state:
     st.subheader("ניתוח בינה מלאכותית")
     if st.button("בצע ניתוח בינה מלאכותית"):
         try:
-            if not api_key:
-                st.error("אנא הזן את מפתח ה-API של OpenAI בצד השמאלי כדי להשתמש בניתוח בינה מלאכותית")
-            else:
-                # Prepare chart data for analysis
-                latest_data = data.tail(ANALYSIS_CONFIG["LOOKBACK_DAYS"])
-                
-                # Convert values to float for formatting
-                current_price = float(data['Close'].iloc[-1])
-                rsi_value = float(data['RSI'].iloc[-1])
-                sma20_value = float(data['SMA_20'].iloc[-1])
-                sma50_value = float(data['SMA_50'].iloc[-1])
-                stoch_k_value = float(data['Stoch_k'].iloc[-1])
-                macd_value = float(data['MACD'].iloc[-1])
-                high_30d = float(latest_data['High'].max())
-                low_30d = float(latest_data['Low'].min())
-                avg_volume = int(latest_data['Volume'].mean())
-                
-                # Prepare prompt for GPT
-                prompt = ANALYSIS_CONFIG["PROMPT_TEMPLATE"].format(
-                    ticker=ticker,
-                    current_price=current_price,
-                    rsi_value=rsi_value,
-                    sma20_value=sma20_value,
-                    sma50_value=sma50_value,
-                    stoch_k_value=stoch_k_value,
-                    macd_value=macd_value,
-                    high_30d=high_30d,
-                    low_30d=low_30d,
-                    avg_volume=avg_volume
-                )
-                
-                # Get AI analysis
-                response = client.chat.completions.create(
-                    model=OPENAI_CONFIG["MODEL"],
-                    messages=[
-                        {"role": "system", "content": OPENAI_CONFIG["SYSTEM_PROMPT"]},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=OPENAI_CONFIG["TEMPERATURE"],
-                    max_tokens=OPENAI_CONFIG["MAX_TOKENS"]
-                )
-                
-                # Display analysis
-                analysis = response.choices[0].message.content
-                st.markdown(f'<div class="ai-analysis">{analysis}</div>', unsafe_allow_html=True)
-                
+            # Prepare chart data for analysis
+            latest_data = data.tail(ANALYSIS_CONFIG["LOOKBACK_DAYS"])
+            
+            # Convert values to float for formatting
+            current_price = float(data['Close'].iloc[-1])
+            rsi_value = float(data['RSI'].iloc[-1])
+            sma20_value = float(data['SMA_20'].iloc[-1])
+            sma50_value = float(data['SMA_50'].iloc[-1])
+            stoch_k_value = float(data['Stoch_k'].iloc[-1])
+            macd_value = float(data['MACD'].iloc[-1])
+            high_30d = float(latest_data['High'].max())
+            low_30d = float(latest_data['Low'].min())
+            avg_volume = int(latest_data['Volume'].mean())
+            
+            # Prepare prompt for GPT
+            prompt = ANALYSIS_CONFIG["PROMPT_TEMPLATE"].format(
+                ticker=ticker,
+                current_price=current_price,
+                rsi_value=rsi_value,
+                sma20_value=sma20_value,
+                sma50_value=sma50_value,
+                stoch_k_value=stoch_k_value,
+                macd_value=macd_value,
+                high_30d=high_30d,
+                low_30d=low_30d,
+                avg_volume=avg_volume
+            )
+            
+            # Get AI analysis
+            response = client.chat.completions.create(
+                model=OPENAI_CONFIG["MODEL"],
+                messages=[
+                    {"role": "system", "content": OPENAI_CONFIG["SYSTEM_PROMPT"]},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=OPENAI_CONFIG["TEMPERATURE"],
+                max_tokens=OPENAI_CONFIG["MAX_TOKENS"]
+            )
+            
+            # Display analysis
+            analysis = response.choices[0].message.content
+            st.markdown(f'<div class="ai-analysis">{analysis}</div>', unsafe_allow_html=True)
+            
         except Exception as e:
             st.error(f"שגיאה במהלך ניתוח בינה מלאכותית: {str(e)}")
